@@ -77,12 +77,10 @@ class ResCurrencyRateProvider(models.Model):
     @api.depends("service")
     def _compute_name(self):
         for provider in self:
-            provider.name = list(
-                filter(
-                    lambda x: x[0] == provider.service,
-                    self._fields["service"].selection,
-                )
-            )[0][1]
+            service_list = list(filter(
+                lambda x: x[0] == provider.service,
+                self._fields["service"].selection))
+            provider.name = service_list[0][1] if len(service_list) > 0 else None
 
     @api.depends("active", "interval_type", "interval_number")
     def _compute_update_schedule(self):
