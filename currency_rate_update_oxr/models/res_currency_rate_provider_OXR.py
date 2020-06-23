@@ -26,6 +26,18 @@ class ResCurrencyRateProviderOXR(models.Model):
         if self.service != 'OXR':
             return super()._get_supported_currencies()  # pragma: no cover
 
+        for provider in self:
+            base_currency = provider.company_id.currency_id.name
+            if base_currency != 'USD':
+                data = self._oxr_provider_usage_plan()
+                if 'error' in data and data['error']:
+                    raise UserError(
+                        data['description']
+                        if 'description' in data
+                        else 'Unknown error'
+                    )
+                if 'name' in data and data['name'] == 'Free':
+                    return ['USD']
         url = 'https://openexchangerates.org/api/currencies.json'
         data = json.loads(self._oxr_provider_retrieve(url))
         if 'error' in data and data['error']:
@@ -44,6 +56,20 @@ class ResCurrencyRateProviderOXR(models.Model):
                                          date_to)  # pragma: no cover
 
         content = defaultdict(dict)
+        invert_calculation = False
+
+        if base_currency != 'USD':
+            data = self._oxr_provider_usage_plan()
+            if 'error' in data and data['error']:
+                raise UserError(
+                    data['description']
+                    if 'description' in data
+                    else 'Unknown error'
+                )
+            if 'name' in data and data['name'] == 'Free':
+                invert_calculation = True
+                currencies.append(base_currency)
+                base_currency = currencies.pop(0)
 
         date = date_from
         while date <= date_to:
@@ -66,13 +92,24 @@ class ResCurrencyRateProviderOXR(models.Model):
                     else 'Unknown error'
                 )
             date_content = content[date.isoformat()]
+            base = data['base']
             if 'rates' in data:
                 for currency, rate in data['rates'].items():
-                    date_content[currency] = rate
+                    if invert_calculation:
+                        date_content[base] = 1.0 / rate
+                    else:
+                        date_content[currency] = rate
 
             date += timedelta(days=1)
 
         return content
+
+    def _oxr_provider_usage_plan(self):
+        url = 'https://openexchangerates.org/api/usage.json'
+        res = json.loads(self._oxr_provider_retrieve(url))
+        if 'data' in res and 'plan' in res['data']:
+            return res['data']['plan']
+        return res
 
     def _oxr_provider_retrieve(self, url):
         self.ensure_one()
